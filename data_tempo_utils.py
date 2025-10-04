@@ -271,6 +271,7 @@ def download_data(download_script_template, download_script, dry_run = False):
 #     )
 
 def fetch_granule_data(
+        concept_id,
         start_date, 
         end_date, 
         folder: Path, 
@@ -300,7 +301,7 @@ def fetch_granule_data(
         else:
             start_date, end_date, last_downloaded_time = get_date_limits()
         granule_urls = search_for_granules(
-        TEMPO_CONCEPT_ID,
+        concept_id,
         start_date,
         end_date,
         last_downloaded_time,

@@ -6,7 +6,7 @@ from data_tempo_utils import (
 )
 
 class EarthDataNO2:
-    def __init__(self, root_dir: str = "./tempo_data", template_script: str = "./download_template.sh"):
+    def __init__(self, root_dir: str = "./tempo_data", template_script: str = "./download_template.sh", concept_id="C3685896708-LARC_CLOUD"):
         """
         Clase para descargar datos TEMPO NO2 de Earthdata (NASA).
         """
@@ -27,6 +27,7 @@ class EarthDataNO2:
         self.download_list = self.folder / "download_list.txt"
         self.download_script_template = Path(template_script)
         self.download_script = self.folder / "download_template.sh"
+        self.concept_id = concept_id
 
     def download_data_today(self):
         """
@@ -35,6 +36,7 @@ class EarthDataNO2:
         print(f"🚀 Descargando datos desde {self.start_date} hasta {self.end_date} ...")
 
         fetch_granule_data(
+            concept_id=self.concept_id,
             start_date=self.start_date,
             end_date=self.end_date,
             folder=self.folder,
@@ -71,6 +73,7 @@ class EarthDataNO2:
         print(f"📅 Descargando datos desde {date_start} hasta {date_end}")
 
         fetch_granule_data(
+            concept_id=self.concept_id,
             start_date=date_start,
             end_date=date_end,
             folder=self.folder,
@@ -86,4 +89,9 @@ class EarthDataNO2:
         print(f"✅ Data de TEMPO descargada en: {self.folder}")
 
 if __name__ == "__main__":
-    earthdata = EarthDataNO2()
+    # CONCEPTS_ID
+    # C2930725014-LARC_CLOUD
+    # C3685896708-LARC_CLOUD
+    earthdata = EarthDataNO2(concept_id="C3685896708-LARC_CLOUD")
+    earthdata.download_data_today()
+
