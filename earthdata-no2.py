@@ -1,9 +1,8 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from data_tempo_utils import (
     fetch_granule_data,
-    setup_data_folder,
-    get_date_limits
+    setup_data_folder
 )
 
 class EarthDataNO2:
@@ -11,10 +10,11 @@ class EarthDataNO2:
         """
         Clase para descargar datos TEMPO NO2 de Earthdata (NASA).
         """
-        self.today = datetime.utcnow()
-        self.start_date, self.end_date, self.last_downloaded_time = get_date_limits()
+        self.start_date = datetime.strptime("2025-10-04 00:00:00", "%Y-%m-%d %H:%M:%S")
+        self.end_date =  datetime.strptime("2025-10-04 23:59:59", "%Y-%m-%d %H:%M:%S")
 
         self.root_dir = Path(root_dir).resolve()
+
         if not self.root_dir.exists():
             self.root_dir.mkdir(parents=True, exist_ok=True)
             print(f"📂 Carpeta creada: {self.root_dir}")
@@ -28,7 +28,7 @@ class EarthDataNO2:
         self.download_script_template = Path(template_script)
         self.download_script = self.folder / "download_template.sh"
 
-    def download_data(self, skip_download=False, verbose=True, dry_run=False, only_one_file=False):
+    def download_data_today(self):
         """
         Descarga los datos de TEMPO NO2 para las fechas configuradas.
         """
@@ -41,6 +41,42 @@ class EarthDataNO2:
             download_list=self.download_list,
             download_script_template=self.download_script_template,
             download_script=self.download_script,
+            skip_download=False,
+            verbose=False,
+            dry_run=False,
+            only_one_file=False
+        )
+
+        print(f"✅ Data de TEMPO descargada en: {self.folder}")
+
+    def download_data_by_date(self, start: str, end: str,
+                            skip_download=False, verbose=True,
+                            dry_run=False, only_one_file=False):
+        """
+        Descarga la data de acuerdo a la fecha ingresada.
+        
+        Parámetros:
+        ----------
+        start : str
+            Fecha de inicio en formato YYYY-MM-DD
+        end : str
+            Fecha de fin en formato YYYY-MM-DD
+        """
+        try:
+            date_start = datetime.strptime(start + " 00:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            date_end = datetime.strptime(end + " 23:59:59", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise ValueError("❌ Formato de fecha inválido. Usa YYYY-MM-DD")
+
+        print(f"📅 Descargando datos desde {date_start} hasta {date_end}")
+
+        fetch_granule_data(
+            start_date=date_start,
+            end_date=date_end,
+            folder=self.folder,
+            download_list=self.download_list,
+            download_script_template=self.download_script_template,
+            download_script=self.download_script,
             skip_download=skip_download,
             verbose=verbose,
             dry_run=dry_run,
@@ -49,6 +85,5 @@ class EarthDataNO2:
 
         print(f"✅ Data de TEMPO descargada en: {self.folder}")
 
-if __name__ == "main":
+if __name__ == "__main__":
     earthdata = EarthDataNO2()
-    earthdata.download_data()

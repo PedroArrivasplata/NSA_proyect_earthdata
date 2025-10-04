@@ -4,14 +4,12 @@ from data_tempo_utils import (
     fetch_granule_data, 
     setup_data_folder
 )
-from data_tempo_utils import get_date_limits
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 today = datetime.utcnow()
-start_date = today.strftime("%Y-%m-%d")
-end_date = today.strftime("%Y-%m-%d")
 
-start_date, end_date, last_downloaded_time = get_date_limits()
+start_date = datetime.strptime("2025-10-04 00:00:00", "%Y-%m-%d %H:%M:%S")
+end_date   = datetime.strptime("2025-10-04 23:59:59", "%Y-%m-%d %H:%M:%S")
 
 root_dir = Path("./tempo_data").resolve()
 
@@ -28,8 +26,8 @@ download_script_template = Path("./download_template.sh")
 download_script = folder / "download_template.sh"
 
 fetch_granule_data(
-    start_date=start_date,
-    end_date=end_date,
+    start_date=start_date.replace(tzinfo=timezone.utc),
+    end_date=end_date.replace(tzinfo=timezone.utc),
     folder=folder,
     download_list=download_list,
     download_script_template=download_script_template,
@@ -39,6 +37,5 @@ fetch_granule_data(
     dry_run=False,
     only_one_file=False
 )
-
 
 print(f"✅ Data de TEMPO descargada en: {folder}")
