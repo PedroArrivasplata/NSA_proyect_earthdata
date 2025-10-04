@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from air_service.adapters.web.mappers.prediction_response_mapper import map_prediction_to_response
 
 class PredictRequest(BaseModel):
@@ -12,8 +12,8 @@ def get_router(predict_use_case):
     @router.post("/predict")
     def predict(req: PredictRequest):
         try:
-            pred = predict_use_case.execute(req.latitude, req.longitude)
-            return map_prediction_to_response(req.latitude, req.longitude, pred)
+            pred = predict_use_case.execute(req.lat, req.lon)
+            return build_prediction_response(req.lat, req.lon, pred)
         except ValueError as ve:
             raise HTTPException(status_code=400, detail=str(ve))
         except Exception:
