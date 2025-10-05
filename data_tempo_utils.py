@@ -191,11 +191,17 @@ def run_command(command: list[str],
         except subprocess.CalledProcessError as e:
             check_cp_command(command)
             logger.error(f"Error running command: {e}")
-            subprocess.run(["pwd"], cwd=cwd, check=True)
+            try:
+                logger.debug(f"Current working directory: {os.getcwd()}")
+            except Exception:
+                logger.debug("Current working directory: unknown")
             sys.exit(1)
         except Exception as e:
             logger.error(f"Error running command: {e}")
-            subprocess.run(["pwd"], cwd=cwd, check=True)
+            try:
+                logger.debug(f"Current working directory: {os.getcwd()}")
+            except Exception:
+                logger.debug("Current working directory: unknown")
             # subprocess.run(["python", "./test.py"], cwd=cwd, check=True)
             sys.exit(1)
 
@@ -209,17 +215,17 @@ def make_absolute(path: str | Path, root_dir: Path) -> Path:
     return path
 
 def setup_data_folder(data_dir=None, root_dir=None):
+    # Normalize root_dir to a Path
     if root_dir is None:
         root_dir = Path('./')
+    root_dir = Path(root_dir)
     if data_dir is not None:
-        # path is not absolute, assume is is relative
-        if not Path(data_dir).is_absolute():
-            folder = root_dir / Path(f"{data_dir}")
-
-        else:
-            folder = Path(data_dir)
-        if not folder.exists():
-            folder.mkdir(exist_ok=False)
+        # Always create the data_dir as a subfolder of root_dir to avoid
+        # accidental absolute paths elsewhere. This ensures the folder is
+        # created under the intended root and avoids missing-folder errors.
+        folder = root_dir / Path(f"{data_dir}")
+        # Create parent directories as needed and allow existing folders.
+        folder.mkdir(parents=True, exist_ok=True)
     else:
         today = datetime.now().strftime("%Y_%b_%d").lower()
         folder = root_dir / Path(f"{today}")
@@ -228,25 +234,60 @@ def setup_data_folder(data_dir=None, root_dir=None):
         while folder.exists():
             folder = root_dir / Path(f"{today}{next(aToZ)}")
         if not folder.exists():
-            folder.mkdir(exist_ok=False)
+            folder.mkdir(parents=True, exist_ok=False)
     logger.debug(f"Data folder set up: {folder}")
     return folder
 
 
 
 def create_download_list(granule_urls: list[str], download_list: Path, data_dir: Path):
-    # Create a list of files to download
-    with open(download_list, "w") as f:
-        for url in granule_urls[:]:
-            filename = url.split("/")[-1]
-            exists = os.path.exists(f"{data_dir}/{filename}") or os.path.exists(
-                f"{data_dir}/subsetted_netcdf/{filename}"
-            )
-            if exists:
-                logger.info(f"Skipping {filename}, already in {data_dir}")
+    # Create a list of files to download, but keep only the most recent granule per zone.
+    # Filename example contains timestamp and zone: ..._20251004T222111Z_S012G09... (zone = 09)
+    import re
+    from datetime import datetime
+
+    pattern = re.compile(r"(?P<date>\d{8}T\d{6}Z).*G(?P<zone>\d{2})", re.IGNORECASE)
+
+    best_per_zone: dict[str, tuple[datetime, str, str]] = {}  # zone -> (dt, url, filename)
+    fallback_urls = []
+
+    for url in granule_urls:
+        filename = url.split("/")[-1]
+        # skip if file already exists
+        exists = os.path.exists(f"{data_dir}/{filename}") or os.path.exists(
+            f"{data_dir}/subsetted_netcdf/{filename}"
+        )
+        if exists:
+            logger.info(f"Skipping {filename}, already in {data_dir}")
+            continue
+
+        m = pattern.search(filename)
+        if m:
+            date_str = m.group('date')
+            zone = m.group('zone')
+            try:
+                dtobj = datetime.strptime(date_str, "%Y%m%dT%H%M%SZ")
+            except Exception:
+                # if parse fails, add to fallback
+                fallback_urls.append((None, url, filename))
                 continue
+
+            prev = best_per_zone.get(zone)
+            if prev is None or dtobj > prev[0]:
+                best_per_zone[zone] = (dtobj, url, filename)
+        else:
+            # could not parse zone/date, keep as fallback
+            fallback_urls.append((None, url, filename))
+
+    # Combine results: choose best from each zone; also append fallback entries
+    selected = [info[1] for info in best_per_zone.values()] + [u[1] for u in fallback_urls]
+
+    # Write selected URLs to download_list
+    with open(download_list, "w", encoding='utf-8') as f:
+        for url in selected:
             f.write(url + "\n")
-    logger.debug(f"Download list created: {download_list}")
+
+    logger.info(f"Download list created: {download_list} (selected {len(selected)} URLs, {len(best_per_zone)} zones)")
 
 def download_data(download_script_template, download_script, dry_run = False):
     # check if a .netrc file is on the path
@@ -256,8 +297,99 @@ def download_data(download_script_template, download_script, dry_run = False):
         logger.error("Please create a .netrc file with your Earthdata login credentials.")
         logger.error("See https://urs.earthdata.nasa.gov/documentation/for_users/data_access/curl_and_wget")
         sys.exit(1)
-    run_command(['cp', str(download_script_template), str(download_script)], dry_run = dry_run, run_anyway=True)
-    run_command(['sh', str(download_script.name)], cwd=download_script.parent, dry_run = dry_run)
+    # Attempt to download files using Python requests + ~/.netrc credentials
+    download_list_path = Path(download_script.parent) / "download_list.txt"
+    def _load_netrc_credentials(path: Path):
+        # Prefer stdlib netrc parser
+        try:
+            import netrc
+            auth = netrc.netrc(str(path)).authenticators('urs.earthdata.nasa.gov')
+            if auth:
+                login, account, password = auth
+                return login, password
+        except Exception:
+            pass
+        # Fallback to manual parse
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if 'urs.earthdata.nasa.gov' in line:
+                    parts = line.strip().split()
+                    # expect: machine host login USER password PASS
+                    try:
+                        user = parts[2]
+                        pwd = parts[4]
+                        return user, pwd
+                    except Exception:
+                        continue
+        raise ValueError('No credentials found in .netrc')
+
+    def download_files_from_list(list_path: Path, dry_run=False):
+        if not list_path.exists():
+            logger.error(f"Download list not found: {list_path}")
+            return False
+        try:
+            user, password = _load_netrc_credentials(netrc)
+        except Exception as e:
+            logger.error(f"Could not read credentials from .netrc: {e}")
+            return False
+
+        session = requests.Session()
+        session.auth = (user, password)
+
+        with open(list_path, 'r', encoding='utf-8') as f:
+            urls = [l.strip() for l in f.readlines() if l.strip()]
+
+        logger.info(f"{len(urls)} archivos a descargar (via requests)")
+
+        for url in urls:
+            filename = url.split('/')[-1].split('?')[0]
+            logger.info(f"Descargando {filename} ...")
+            if dry_run:
+                continue
+            try:
+                with session.get(url, allow_redirects=True, stream=True, timeout=120) as r:
+                    if r.status_code == 200:
+                        with open(download_script.parent / filename, 'wb') as fh:
+                            for chunk in r.iter_content(chunk_size=8192):
+                                if chunk:
+                                    fh.write(chunk)
+                        logger.info(f"Archivo descargado: {filename}")
+                    else:
+                        logger.error(f"Error {r.status_code} al descargar {filename}")
+                        return False
+            except Exception as e:
+                logger.error(f"Fallo al descargar {url}: {e}")
+                return False
+        return True
+
+    # Try python-based downloader first
+    try:
+        ok = download_files_from_list(download_list_path, dry_run=dry_run)
+        if ok:
+            return
+    except Exception as e:
+        logger.debug(f"Python downloader failed: {e}")
+
+    # Fallback: copy the template to the download script path using Python (cross-platform)
+    import shutil, platform
+    try:
+        shutil.copy(str(download_script_template), str(download_script))
+    except Exception as e:
+        logger.error(f"Error copying template: {e}")
+        sys.exit(1)
+
+    # Execute the script: on Windows use PowerShell, otherwise use sh
+    if platform.system().lower().startswith('windows'):
+        # Use PowerShell to run the .ps1
+        ps_cmd = [
+            'powershell',
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', str(download_script)
+        ]
+        run_command(ps_cmd, cwd=download_script.parent, dry_run=dry_run)
+    else:
+        run_command(['sh', str(download_script.name)], cwd=download_script.parent, dry_run = dry_run)
 
 # def download_data(download_list: Path, template: Path, download_dir: Path, dry_run = False):
 #     run_command(
