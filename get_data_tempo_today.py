@@ -26,6 +26,7 @@ download_script_template = Path("./download_template.sh")
 download_script = folder / "download_template.sh"
 
 fetch_granule_data(
+    concept_id="C3685896708-LARC_CLOUD",
     start_date=start_date.replace(tzinfo=timezone.utc),
     end_date=end_date.replace(tzinfo=timezone.utc),
     folder=folder,
