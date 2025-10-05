@@ -5,7 +5,16 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm  # barra de progreso opcional
 
-def process_tempo_data(folder_nc="./tempo_data", folder_parquet="./tempo_parquet"):
+def process_tempo_data(
+        folder_nc="./tempo_data", 
+        folder_parquet="./tempo_parquet", 
+        features_to_keep=[
+                "vertical_column_troposphere",
+                "vertical_column_troposphere_uncertainty",
+                "vertical_column_stratosphere",
+                "main_data_quality_flag",
+        ],
+        group_data_name="product"):
     """
     Procesa archivos .nc de TEMPO NO2 y los convierte en Parquet de forma optimizada.
     Ignora archivos vacíos o sin dimensiones válidas.
@@ -26,7 +35,7 @@ def process_tempo_data(folder_nc="./tempo_data", folder_parquet="./tempo_parquet
 
     for ruta in tqdm(rutas_nc, desc="Procesando archivos"):
         try:
-            ds = xr.open_dataset(ruta, engine="h5netcdf", group="product")
+            ds = xr.open_dataset(ruta, engine="h5netcdf", group=group_data_name)
 
             # Verificar dimensiones válidas
             if not ds.dims:
@@ -34,13 +43,7 @@ def process_tempo_data(folder_nc="./tempo_data", folder_parquet="./tempo_parquet
                 ds.close()
                 continue
 
-            # Variables a extraer
-            vars_to_keep = [
-                "vertical_column_troposphere",
-                "vertical_column_troposphere_uncertainty",
-                "vertical_column_stratosphere",
-                "main_data_quality_flag",
-            ]
+            vars_to_keep = features_to_keep
             available_vars = [v for v in vars_to_keep if v in ds.variables]
 
             if not available_vars:
