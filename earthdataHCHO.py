@@ -472,8 +472,7 @@ def procesar_nc_a_parquet(
 
     return output_path
 
-
-if __name__ == "__main__":
+def main():
     # CONCEPTS_ID
     # C2930725014-LARC_CLOUD
     # C3685912035-LARC_CLOUD
@@ -528,6 +527,9 @@ if __name__ == "__main__":
         output_name="hcho_combinado.parquet"
     )
 
+
+if __name__ == "__main__":
+    main()
 
 
 
